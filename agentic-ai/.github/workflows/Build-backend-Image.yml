@@ -1,0 +1,111 @@
+name: Build and Push Backend Image CICD 
+run-name: ${{ github.actor }} is running ${{ github.workflow }} for with run number ${{ github.run_id }}
+description: This workflow generate a new agent image and push it back to repo
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'backend/**'
+  workflow_call: # can be called by other workflows eg. in a deployment cicd workflow
+    inputs:
+      version:
+        description: 'Version string to tag image (e.g. v1.2.3)'
+        required: true
+        type: string
+  workflow_dispatch: # manually execute the workflow
+    inputs:
+      version:
+        description: 'Version string to tag image (e.g. v1.2.3)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ${{ github.repository_owner }}/agentic-backend
+  IMAGE_PATH: ./images
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: build-backend-${{ github.ref }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Determine image tags
+        id: vars
+        run: |
+          # prefer explicit input version if provided (workflow_dispatch or workflow_call)
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            TAG="${{ github.event.inputs.version }}"
+          elif [ "${{ github.event_name }}" = "release" ] && [ -n "${{ github.event.release.tag_name }}" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${{ github.ref#refs/tags/ }}"
+          else
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            TAG="sha-${SHORT_SHA}"
+          fi
+          RUNNUM=${{ github.run_number }}
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "tag_run=${TAG}-${RUNNUM}" >> $GITHUB_OUTPUT
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.tag }}
+            ${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.tag_run }}
+            ${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Save image to ./images and commit back to repo
+        run: |
+          set -euo pipefail
+          mkdir -p "${{ env.IMAGE_PATH }}"
+          TAG="${{ steps.vars.outputs.tag_run }}"
+          IMG="${{ env.IMAGE_NAME }}:${TAG}"
+          # ensure image available locally (build step may have pushed but not kept local)
+          docker pull "${IMG}" || true
+          SANITIZED="$(echo "${IMG}" | sed 's/[^A-Za-z0-9._-]/_/g')"
+          OUT="${{ env.IMAGE_PATH }}/$SANITIZED.tar.gz"
+          docker save "${IMG}" | gzip > "$OUT"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "${OUT}"
+          git commit -m "Add built image: ${IMG}" || echo "No changes to commit"
+          BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+          git push "https://${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" "HEAD:${BRANCH}"
+          
+      - name: Output pushed tags
+        run: |
+          echo "Pushed images:"
+          echo "${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.tag }}"
+          echo "${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.tag_run }}"
+          echo "${{ env.IMAGE_NAME }}:latest"
