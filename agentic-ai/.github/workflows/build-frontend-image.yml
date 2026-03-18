@@ -1,0 +1,86 @@
+name: Build and Push Frontend Image CICD 
+run-name: ${{ github.actor }} is running ${{ github.workflow }} for with run number ${{ github.run_id }}
+description: This workflow generate a new frontend image
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'frontend/**'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version string to tag image (e.g. v1.2.3)'
+        required: false
+        default: ''
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version string to tag image (e.g. v1.2.3)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: ${{ github.repository_owner }}/agentic-frontend
+  IMAGE_PATH: ./images
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Determine image tag
+        id: vars
+        run: |
+          # Prefer explicit input version (workflow_dispatch or workflow_call)
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            TAG="${{ github.event.inputs.version }}"
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            TAG="sha-${SHORT_SHA}"
+          else
+            TAG="run-${{ github.run_id }}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Build frontend image (load into Docker)
+        uses: docker/build-push-action@v4
+        with:
+          context: ./frontend
+          # If your frontend has a custom Dockerfile path, update the line below
+          file: ./frontend/Dockerfile
+          push: false
+          load: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.tag }}
+            ${{ env.IMAGE_NAME }}:latest
+
+      - name: Save image to tar.gz
+        run: |
+          set -euo pipefail
+          mkdir -p "${{ env.IMAGE_PATH }}"
+          TAG="${{ steps.vars.outputs.tag }}"
+          IMG="${{ env.IMAGE_NAME }}:${TAG}"
+          SANITIZED="$(echo "${IMG}" | sed 's/[^A-Za-z0-9._-]/_/g')"
+          OUT="${{ env.IMAGE_PATH }}/$SANITIZED.tar.gz"
+          docker save "${IMG}" | gzip > "$OUT"
+          echo "Saved image to $OUT"
+
+      - name: Upload frontend image artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: frontend-image
+          path: ${{ env.IMAGE_PATH }}
