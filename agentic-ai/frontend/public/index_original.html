@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Agentic Agent Chat</title>
+    <style>
+        header strong { color: rgb(0, 34, 255); font-size: 20px; }
+    </style>
+    <link rel="stylesheet" href="/styles/main.css" />
+    <style>
+      /* Minimal inline styles to make the chat usable */
+      body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 0; display:flex; height:100vh; }
+      #app { margin:auto; width:100%; max-width:800px; height:90vh; display:flex; flex-direction:column; border:1px solid #e6e6e6; border-radius:8px; overflow:hidden; }
+      header { padding:12px 16px; border-bottom:1px solid #eee; background:#fafafa; }
+      #messages { flex:1; padding:16px; overflow:auto; background:#fff; }
+      .message { margin-bottom:12px; padding:10px 12px; border-radius:8px; max-width:80%; position:relative; }
+      .message.user { background:#e6f0ff; margin-left:auto; text-align:right; }
+      .message.assistant { background:#f1f1f1; margin-right:auto; text-align:left; }
+      .message .content { white-space:pre-wrap; }
+      .timestamp { display:block; margin-top:6px; font-size:0.8rem; color:#666; }
+      /* align timestamp consistent with message side */
+      .message.user .timestamp { text-align:right; }
+      .message.assistant .timestamp { text-align:left; }
+      #composer { display:flex; gap:8px; padding:12px; border-top:1px solid #eee; background:#fafafa; }
+      #user-input { flex:1; padding:10px 12px; border:1px solid #ddd; border-radius:6px; font-size:1rem; }
+      #send-btn { padding:10px 14px; border-radius:6px; border: none; background:#2563eb; color:white; cursor:pointer; }
+      #send-btn:disabled { opacity:0.6; cursor:not-allowed; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <header>
+            <strong>Penny's agentic Chatbot: input your question in natural language</strong>
+        </header>
+
+        <div id="messages" aria-live="polite"></div>
+
+        <div id="composer">
+            <input id="user-input" type="text" placeholder="Ask a question..." autocomplete="off" />
+            <button id="send-btn" type="button">Send</button>
+        </div>
+    </div>
+
+    <!-- Use the UI code from agentic-agent/web-ui/src -->
+    <script type="module" src="/agentic-agent/web-ui/src/main.js"></script>
+
+    <!-- Small UI wiring: send user question to backend and show messages -->
+    <script type="module">
+      const messagesEl = document.getElementById('messages');
+      const inputEl = document.getElementById('user-input');
+      const sendBtn = document.getElementById('send-btn');
+
+      function timeStamp() {
+        const d = new Date();
+        return d.toLocaleTimeString();
+      }
+
+      function formatWithPrefix(text, role) {
+        const prefix = role === 'user' ? 'Question: ' : 'Answer: ';
+        return prefix + text;
+      }
+
+      function appendMessage(text, role = 'assistant') {
+        const div = document.createElement('div');
+        div.className = 'message ' + (role === 'user' ? 'user' : 'assistant');
+
+        const content = document.createElement('div');
+        content.className = 'content';
+        content.textContent = formatWithPrefix(text, role);
+        div.appendChild(content);
+
+        const ts = document.createElement('span');
+        ts.className = 'timestamp';
+        ts.textContent = timeStamp();
+        div.appendChild(ts);
+
+        messagesEl.appendChild(div);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+
+      async function sendQuestion(question) {
+        if (!question.trim()) return;
+        // show user message
+        appendMessage(question, 'user');
+        inputEl.value = '';
+        inputEl.disabled = true;
+        sendBtn.disabled = true;
+
+        try {
+          // POST to backend agent endpoint (adjust path if your backend differs)
+          const res = await fetch('/api/agent', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question })
+          });
+
+          if (!res.ok) {
+            const txt = await res.text();
+            appendMessage('Error: ' + (txt || res.statusText), 'assistant');
+            return;
+          }
+
+          // Expect JSON { answer: "..." } - adjust parsing to your backend
+          const data = await res.json();
+          const answer = data?.answer ?? JSON.stringify(data);
+          appendMessage(answer, 'assistant');
+        } catch (err) {
+          appendMessage('Network error: ' + (err.message || err), 'assistant');
+        } finally {
+          inputEl.disabled = false;
+          sendBtn.disabled = false;
+          inputEl.focus();
+        }
+      }
+
+      sendBtn.addEventListener('click', () => sendQuestion(inputEl.value));
+      inputEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          sendQuestion(inputEl.value);
+        }
+      });
+
+      // optional: focus input on load
+      inputEl.focus();
+    </script>
+</body>
+</html>
