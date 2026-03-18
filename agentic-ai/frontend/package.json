@@ -1,0 +1,27 @@
+{
+  "name": "agentic-agent-web-ui",
+  "version": "1.0.0",
+  "description": "Web UI for the Agentic Agent project, allowing users to interact with the chatbot.",
+  "main": "src/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "vite preview"
+  },
+  "dependencies": {
+    "react": "^17.0.2",
+    "react-dom": "^17.0.2",
+    "axios": "^0.21.1"
+  },
+  "devDependencies": {
+    "vite": "^2.6.4",
+    "vite-plugin-react": "^1.0.0"
+  },
+  "keywords": [
+    "chatbot",
+    "react",
+    "vite"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}
