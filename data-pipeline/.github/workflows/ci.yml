@@ -1,0 +1,42 @@
+name: data processing  Pipeline
+run-name: ${{ github.actor }} is running ${{ github.workflow }} for with run number ${{ github.run_id }}
+description: This workflow  implementate ETL process
+
+on:
+  branches: [ "main" ]
+    paths:
+      - './data/raw/*'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - './data/raw/*'
+  workflow_call: # can be called by other workflows eg. in a deployment cicd workflow
+  workflow_dispatch: # manually execute the workflow 
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.8'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run PySpark pipeline
+        run: |
+          python src/pipeline.py
+
+      - name: Upload processed datasets
+        uses: actions/upload-artifact@v2
+        with:
+          name: processed-datasets
+          path: data/processed/
